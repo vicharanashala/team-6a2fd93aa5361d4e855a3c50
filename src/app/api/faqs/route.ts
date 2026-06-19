@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
       question,
       answer,
       category,
+      views: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -95,6 +96,39 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('POST /api/faqs error:', error);
     return Response.json({ error: 'Failed to add FAQ' }, { status: 500 });
+  }
+}
+
+// PATCH /api/faqs — increment views count for a FAQ (anonymous allowed)
+export async function PATCH(request: NextRequest) {
+  try {
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(ip, 'faqs-patch', RATE_LIMITS.api);
+    if (!rl.allowed) {
+      return rateLimitResponse(rl.retryAfterMs!);
+    }
+
+    const body = await request.json();
+    const { id } = body;
+
+    if (!id || !/^[a-f0-9]{24}$/.test(id)) {
+      return Response.json({ error: 'Valid FAQ ID is required' }, { status: 400 });
+    }
+
+    const db = await getDb();
+    const result = await db.collection('faqs').updateOne(
+      { _id: new ObjectId(id) },
+      { $inc: { views: 1 } }
+    );
+
+    if (result.matchedCount === 0) {
+      return Response.json({ error: 'FAQ not found' }, { status: 404 });
+    }
+
+    return Response.json({ success: true });
+  } catch (error) {
+    console.error('PATCH /api/faqs error:', error);
+    return Response.json({ error: 'Failed to update FAQ views' }, { status: 500 });
   }
 }
 
