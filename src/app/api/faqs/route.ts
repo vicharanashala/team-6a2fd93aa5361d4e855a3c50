@@ -4,8 +4,7 @@ import { ObjectId } from 'mongodb';
 import { cookies } from 'next/headers';
 import { sanitizeInput, escapeRegex } from '@/lib/security';
 import { checkRateLimit, getClientIp, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
-import { searchFaqs, addFaqToQdrant, deleteFaqFromQdrant } from '@/lib/qdrant';
-import { randomUUID } from 'crypto';
+import { searchFaqs } from '@/lib/qdrant';
 
 export const dynamic = 'force-dynamic';
 
