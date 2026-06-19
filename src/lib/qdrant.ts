@@ -43,4 +43,29 @@ export async function searchFaqs(question: string, topK: number = 5) {
   });
 }
 
+export async function addFaqToQdrant(id: string, question: string, answer: string, category: string) {
+  const vector = await Embedder.embed(question);
+  await client.upsert(collectionName, {
+    wait: true,
+    points: [
+      {
+        id,
+        vector,
+        payload: {
+          question,
+          answer,
+          category,
+        },
+      },
+    ],
+  });
+}
+
+export async function deleteFaqFromQdrant(id: string) {
+  await client.delete(collectionName, {
+    wait: true,
+    points: [id],
+  });
+}
+
 export default client;
