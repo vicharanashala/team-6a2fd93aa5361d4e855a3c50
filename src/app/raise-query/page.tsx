@@ -85,6 +85,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
         const res = await fetch(`/api/faqs?q=${encodeURIComponent(question.trim())}`);
         const data = await res.json();
         
+
         if (data.faqs) {
           // Take top 3
           setSimilarFaqs(data.faqs.slice(0, 3));
