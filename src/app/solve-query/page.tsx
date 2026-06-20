@@ -4,13 +4,21 @@ import { useState, useEffect } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 
 interface SolveQuery {
-  _id: string;
+  // Schema-aligned fields
+  query_id: string;
   ticketId: string;
-  question: string;
-  status: 'active' | 'in-review' | 'resolved';
-  proposedAnswer?: string;
+  title: string;
+  description: string;
+  category?: string;
+  posted_at?: string;
+  status: 'Open' | 'Resolved';
+  // Supplementary internal fields from API
+  _id: string;
+  proposedAnswer?: string | null;
   approvals: string[];
   requiredApprovals: number;
+  // Derived internal status for solve logic
+  internalStatus?: 'active' | 'in-review' | 'resolved';
 }
 
 export default function SolveQueryPage() {
@@ -42,7 +50,17 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
       const data = await res.json();
 
       if (data.query) {
-        setQuery(data.query);
+        // Derive internal status from schema status + proposedAnswer
+        const q = data.query as SolveQuery;
+        if (!q.internalStatus) {
+          q.internalStatus =
+            q.status === 'Resolved'
+              ? 'resolved'
+              : q.proposedAnswer
+              ? 'in-review'
+              : 'active';
+        }
+        setQuery(q);
       } else {
         setQuery(null);
       }
@@ -160,17 +178,42 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
         ) : query ? (
           <div className="glass-card solve-query-card" id="solve-query-card">
             {/* Query Info */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-md)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-sm)' }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                 {query.ticketId}
               </span>
-              <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
+              <span className={`badge badge-${
+                query.internalStatus === 'in-review'
+                  ? 'review'
+                  : query.internalStatus === 'resolved'
+                  ? 'resolved'
+                  : 'active'
+              }`}>
                 <span className="badge-dot" />
-                {query.status === 'in-review' ? 'In Review' : 'Active'}
+                {query.internalStatus === 'in-review'
+                  ? 'In Review'
+                  : query.internalStatus === 'resolved'
+                  ? 'Resolved'
+                  : 'Active'}
               </span>
             </div>
 
-            <h2 className="solve-query-question">{query.question}</h2>
+            {/* Category + timestamp */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }}>
+              {query.category && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🏷️ {query.category}</span>
+              )}
+              {query.posted_at && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🕐 Posted on: {query.posted_at}</span>
+              )}
+            </div>
+
+            <h2 className="solve-query-question">{query.title}</h2>
+            {query.description && query.description !== query.title && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: 'var(--space-md)' }}>
+                {query.description}
+              </p>
+            )}
 
             {error && <div className="error-alert">{error}</div>}
             {message && (
@@ -188,7 +231,7 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
             )}
 
             {/* Active query — needs answer */}
-            {query.status === 'active' && (
+            {query.internalStatus === 'active' && (
               <div>
                 <div className="input-group mb-md">
                   <label className="input-label" htmlFor="answer-input">
@@ -226,7 +269,7 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
             )}
 
             {/* In-review query — approve or skip */}
-            {query.status === 'in-review' && query.proposedAnswer && (
+            {query.internalStatus === 'in-review' && query.proposedAnswer && (
               <div>
                 <div style={{
                   padding: 'var(--space-md)',

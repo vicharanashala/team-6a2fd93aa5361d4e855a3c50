@@ -4,16 +4,26 @@ import { useState, useEffect, useCallback } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import TicketDisplay from '@/components/TicketDisplay';
 import StatusTracker from '@/components/StatusTracker';
+import { ALL_CATEGORIES } from '@/lib/categorizer';
+import type { QueryCategory } from '@/lib/categorizer';
+
+// ─── Schema-aligned TrackedQuery (supplementary fields included) ──────────────
 
 interface TrackedQuery {
   _id: string;
   ticketId: string;
-  question: string;
-  status: 'active' | 'in-review' | 'resolved';
-  proposedAnswer?: string;
+  query_id: string;
+  title: string;
+  description: string;
+  category: QueryCategory;
+  status: 'Open' | 'Resolved';
+  posted_at: string;
+  proposedAnswer?: string | null;
   approvals: string[];
   requiredApprovals: number;
-  createdAt: string;
+  // supplementary internal fields
+  internalStatus?: 'active' | 'in-review' | 'resolved';
+  createdAt?: string;
 }
 
 export default function RaiseQueryPage() {
@@ -25,23 +35,24 @@ export default function RaiseQueryPage() {
 }
 
 function RaiseQueryContent({ user }: { user: { userId: string; username: string } }) {
-  // Submit query state
-  const [question, setQuestion] = useState('');
+  // ── Submit query form state ──────────────────────────────────────────────────
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<QueryCategory | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [submittedTicketId, setSubmittedTicketId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState('');
 
-  // Track query state
+  // ── Track query state ────────────────────────────────────────────────────────
   const [trackTicketId, setTrackTicketId] = useState('');
   const [tracking, setTracking] = useState(false);
   const [trackedQuery, setTrackedQuery] = useState<TrackedQuery | null>(null);
   const [trackError, setTrackError] = useState('');
 
-  // User's own queries (auto-populated)
+  // ── User's own queries (auto-populated) ─────────────────────────────────────
   const [myQueries, setMyQueries] = useState<TrackedQuery[]>([]);
   const [loadingMyQueries, setLoadingMyQueries] = useState(true);
 
-  // Fetch user's queries on mount
   const fetchMyQueries = useCallback(async () => {
     setLoadingMyQueries(true);
     try {
@@ -63,7 +74,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
 
   const handleSubmitQuery = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!question.trim()) return;
+    if (!title.trim() || !description.trim()) return;
 
     setSubmitting(true);
     setSubmitError('');
@@ -73,15 +84,21 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
       const res = await fetch('/api/queries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question.trim() }),
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim(),
+          category: category || undefined, // let server auto-categorize if blank
+        }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
         setSubmittedTicketId(data.ticketId);
-        setQuestion('');
-        fetchMyQueries(); // Refresh user's queries
+        setTitle('');
+        setDescription('');
+        setCategory('');
+        fetchMyQueries();
       } else {
         setSubmitError(data.error || 'Failed to submit query');
       }
@@ -116,6 +133,13 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
     }
   };
 
+  // Derive internal status (needed by StatusTracker) from schema status
+  function toInternalStatus(q: TrackedQuery): 'active' | 'in-review' | 'resolved' {
+    if (q.internalStatus) return q.internalStatus;
+    if (q.status === 'Resolved') return 'resolved';
+    return 'active';
+  }
+
   return (
     <div className="content-wrapper">
       <div className="page-header">
@@ -124,7 +148,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
       </div>
 
       <div className="query-sections">
-        {/* Submit Query Section */}
+        {/* ── Submit Query Section ─────────────────────────────────────────── */}
         <div className="glass-card" style={{ animation: 'slideUp 0.5s ease' }} id="submit-query-section">
           <div className="section-title">
             <span className="section-title-icon">✍️</span>
@@ -136,9 +160,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
               <TicketDisplay ticketId={submittedTicketId} />
               <button
                 className="btn btn-secondary w-full mt-lg"
-                onClick={() => {
-                  setSubmittedTicketId(null);
-                }}
+                onClick={() => setSubmittedTicketId(null)}
                 id="submit-another-btn"
               >
                 Submit Another Query
@@ -149,24 +171,65 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
               {submitError && (
                 <div className="error-alert">{submitError}</div>
               )}
+
+              {/* Query Title */}
+              <div className="input-group mb-md">
+                <label className="input-label" htmlFor="query-title">
+                  Query Title <span style={{ color: 'var(--accent-red, #f87171)' }}>*</span>
+                </label>
+                <input
+                  id="query-title"
+                  className="input"
+                  type="text"
+                  placeholder="e.g. How do I apply for a mess rebate?"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Category Select */}
+              <div className="input-group mb-md">
+                <label className="input-label" htmlFor="query-category">
+                  Category{' '}
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '0.8rem' }}>
+                    (leave blank to auto-detect)
+                  </span>
+                </label>
+                <select
+                  id="query-category"
+                  className="input"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as QueryCategory | '')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <option value="">— Auto-detect category —</option>
+                  {ALL_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Description */}
               <div className="input-group mb-lg">
-                <label className="input-label" htmlFor="query-input">
-                  Your Question
+                <label className="input-label" htmlFor="query-description">
+                  Full Description <span style={{ color: 'var(--accent-red, #f87171)' }}>*</span>
                 </label>
                 <textarea
-                  id="query-input"
+                  id="query-description"
                   className="input textarea"
-                  placeholder="Describe your question in detail..."
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
+                  placeholder="Describe your query in detail — include relevant context, dates, or references..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                   rows={5}
                   required
                 />
               </div>
+
               <button
                 type="submit"
                 className="btn btn-primary w-full"
-                disabled={submitting || !question.trim()}
+                disabled={submitting || !title.trim() || !description.trim()}
                 id="submit-query-btn"
               >
                 {submitting ? 'Submitting...' : '🚀 Submit Query'}
@@ -175,7 +238,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
           )}
         </div>
 
-        {/* Track Query Section */}
+        {/* ── Track Query Section ──────────────────────────────────────────── */}
         <div className="glass-card" style={{ animation: 'slideUp 0.5s ease 0.1s both' }} id="track-query-section">
           <div className="section-title">
             <span className="section-title-icon">🔎</span>
@@ -212,13 +275,13 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
 
           {trackedQuery && (
             <div style={{ animation: 'slideUp 0.4s ease' }}>
-              <QueryStatusCard query={trackedQuery} />
+              <QueryStatusCard query={trackedQuery} toInternalStatus={toInternalStatus} />
             </div>
           )}
         </div>
       </div>
 
-      {/* User's Queries Section */}
+      {/* ── My Queries Section ────────────────────────────────────────────────── */}
       <div className="glass-card mt-2xl" style={{ animation: 'slideUp 0.5s ease 0.2s both' }} id="my-queries-section">
         <div className="section-title" style={{ justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
@@ -250,17 +313,13 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
               >
                 <div className="my-query-top">
                   <span className="my-query-ticket">{q.ticketId}</span>
-                  <span className={`badge badge-${q.status === 'in-review' ? 'review' : q.status}`}>
+                  <span className={`badge badge-${q.status === 'Resolved' ? 'resolved' : q.status === 'Open' ? 'active' : 'review'}`}>
                     <span className="badge-dot" />
-                    {q.status === 'in-review' ? 'In Review' : q.status.charAt(0).toUpperCase() + q.status.slice(1)}
+                    {q.status}
                   </span>
                 </div>
-                <div className="my-query-question">{q.question}</div>
-                <div className="my-query-date">
-                  {new Date(q.createdAt).toLocaleDateString('en-IN', {
-                    day: 'numeric', month: 'short', year: 'numeric',
-                  })}
-                </div>
+                <div className="my-query-question">{q.title || q.description}</div>
+                <div className="my-query-date">{q.posted_at}</div>
               </div>
             ))}
           </div>
@@ -276,7 +335,16 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
   );
 }
 
-function QueryStatusCard({ query }: { query: TrackedQuery }) {
+// ─── QueryStatusCard ──────────────────────────────────────────────────────────
+
+function QueryStatusCard({
+  query,
+  toInternalStatus,
+}: {
+  query: TrackedQuery;
+  toInternalStatus: (q: TrackedQuery) => 'active' | 'in-review' | 'resolved';
+}) {
+  const internalStatus = toInternalStatus(query);
   return (
     <div>
       <div style={{
@@ -284,29 +352,39 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
         background: 'var(--bg-glass)',
         borderRadius: 'var(--radius-md)',
         border: '1px solid var(--border-subtle)',
-        marginBottom: 'var(--space-lg)'
+        marginBottom: 'var(--space-lg)',
       }}>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
           Ticket: {query.ticketId}
         </div>
         <div style={{ fontWeight: 600, marginBottom: 'var(--space-sm)' }}>
-          {query.question}
+          {query.title}
         </div>
-        <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
+        {query.category && (
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+            🏷️ {query.category}
+          </div>
+        )}
+        {query.posted_at && (
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+            🕐 Posted on: {query.posted_at}
+          </div>
+        )}
+        <span className={`badge badge-${internalStatus === 'in-review' ? 'review' : internalStatus}`}>
           <span className="badge-dot" />
-          {query.status === 'in-review' ? 'In Review' : query.status.charAt(0).toUpperCase() + query.status.slice(1)}
+          {query.status}
         </span>
       </div>
 
       <div style={{ position: 'relative' }}>
         <StatusTracker
-          status={query.status}
+          status={internalStatus}
           approvals={query.approvals?.length || 0}
           requiredApprovals={query.requiredApprovals || 3}
         />
       </div>
 
-      {query.status === 'in-review' && (
+      {internalStatus === 'in-review' && (
         <div className="mt-lg">
           <div className="approval-bar">
             <div
@@ -320,7 +398,7 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
         </div>
       )}
 
-      {query.status === 'resolved' && query.proposedAnswer && (
+      {internalStatus === 'resolved' && query.proposedAnswer && (
         <div className="mt-lg" style={{
           padding: 'var(--space-md)',
           background: 'rgba(16, 185, 129, 0.08)',

@@ -4,10 +4,12 @@ import { ObjectId } from 'mongodb';
 import { cookies } from 'next/headers';
 import { sanitizeInput, escapeRegex } from '@/lib/security';
 import { checkRateLimit, getClientIp, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
+import { categorizeQuery, formatFaqPayload } from '@/lib/categorizer';
+import type { QueryCategory } from '@/lib/categorizer';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/faqs — list all FAQs or search
+// GET /api/faqs — list all FAQs or search; optionally filter by category
 export async function GET(request: NextRequest) {
   try {
     // Rate limit
@@ -20,33 +22,35 @@ export async function GET(request: NextRequest) {
     const db = await getDb();
     const searchParams = request.nextUrl.searchParams;
     const q = searchParams.get('q');
+    const category = searchParams.get('category') as QueryCategory | null;
 
-    let faqs;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let filter: Record<string, any> = {};
+
     if (q && q.trim()) {
       // Sanitize and escape the search query to prevent regex injection
       const sanitized = sanitizeInput(q);
       const escaped = escapeRegex(sanitized);
       const regex = new RegExp(escaped, 'i');
-
-      faqs = await db
-        .collection('faqs')
-        .find({
-          $or: [
-            { question: { $regex: regex } },
-            { answer: { $regex: regex } },
-          ],
-        })
-        .sort({ createdAt: -1 })
-        .toArray();
-    } else {
-      faqs = await db
-        .collection('faqs')
-        .find({})
-        .sort({ createdAt: -1 })
-        .toArray();
+      filter = {
+        $or: [
+          { question: { $regex: regex } },
+          { answer: { $regex: regex } },
+        ],
+      };
     }
 
-    return Response.json({ faqs });
+    if (category) {
+      filter.category = category;
+    }
+
+    const faqs = await db
+      .collection('faqs')
+      .find(filter)
+      .sort({ updatedAt: -1 })
+      .toArray();
+
+    return Response.json({ faqs: faqs.map(formatFaqPayload) });
   } catch (error) {
     console.error('GET /api/faqs error:', error);
     return Response.json({ error: 'Failed to fetch FAQs' }, { status: 500 });
@@ -73,62 +77,34 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const question = sanitizeInput(body.question || '');
     const answer = sanitizeInput(body.answer || '');
-    const category = sanitizeInput(body.category || '');
+    const rawCategory = sanitizeInput(body.category || '');
 
     if (!question || !answer) {
       return Response.json({ error: 'Question and answer are required' }, { status: 400 });
     }
 
+    // Auto-categorize if not explicitly provided
+    const category: QueryCategory = rawCategory
+      ? (rawCategory as QueryCategory)
+      : categorizeQuery(`${question} ${answer}`);
+
+    const now = new Date();
     const db = await getDb();
     const result = await db.collection('faqs').insertOne({
       question,
       answer,
       category,
-      views: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     });
 
-    return Response.json({ 
-      success: true, 
-      id: result.insertedId.toString() 
+    return Response.json({
+      success: true,
+      id: result.insertedId.toString()
     }, { status: 201 });
   } catch (error) {
     console.error('POST /api/faqs error:', error);
     return Response.json({ error: 'Failed to add FAQ' }, { status: 500 });
-  }
-}
-
-// PATCH /api/faqs — increment views count for a FAQ (anonymous allowed)
-export async function PATCH(request: NextRequest) {
-  try {
-    const ip = getClientIp(request);
-    const rl = checkRateLimit(ip, 'faqs-patch', RATE_LIMITS.api);
-    if (!rl.allowed) {
-      return rateLimitResponse(rl.retryAfterMs!);
-    }
-
-    const body = await request.json();
-    const { id } = body;
-
-    if (!id || !/^[a-f0-9]{24}$/.test(id)) {
-      return Response.json({ error: 'Valid FAQ ID is required' }, { status: 400 });
-    }
-
-    const db = await getDb();
-    const result = await db.collection('faqs').updateOne(
-      { _id: new ObjectId(id) },
-      { $inc: { views: 1 } }
-    );
-
-    if (result.matchedCount === 0) {
-      return Response.json({ error: 'FAQ not found' }, { status: 404 });
-    }
-
-    return Response.json({ success: true });
-  } catch (error) {
-    console.error('PATCH /api/faqs error:', error);
-    return Response.json({ error: 'Failed to update FAQ views' }, { status: 500 });
   }
 }
 

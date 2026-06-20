@@ -12,7 +12,6 @@ interface FAQCardProps {
 }
 
 export default function FAQCard({
-  id,
   question,
   answer,
   category,
@@ -22,15 +21,7 @@ export default function FAQCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const handleToggle = () => {
-    const nextState = !expanded;
-    setExpanded(nextState);
-    if (nextState && id) {
-      fetch('/api/faqs', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      }).catch((err) => console.error('Failed to increment views:', err));
-    }
+    setExpanded((prev) => !prev);
   };
 
   return (

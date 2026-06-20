@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmModal from '@/components/ConfirmModal';
+import { ALL_CATEGORIES } from '@/lib/categorizer';
+import type { QueryCategory } from '@/lib/categorizer';
 
 interface FAQ {
   _id: string;
@@ -20,7 +22,7 @@ export default function AdminDashboardPage() {
   // Add FAQ form
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState<QueryCategory | ''>('');
   const [adding, setAdding] = useState(false);
   const [addMessage, setAddMessage] = useState('');
   const [addError, setAddError] = useState('');
@@ -208,16 +210,20 @@ export default function AdminDashboardPage() {
 
             <div className="input-group mb-lg">
               <label className="input-label" htmlFor="faq-category">
-                Category (optional)
+                Category
               </label>
-              <input
+              <select
                 id="faq-category"
                 className="input"
-                type="text"
-                placeholder="e.g. Academics, Hostel, Placement"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              />
+                onChange={(e) => setCategory(e.target.value as QueryCategory | '')}
+                style={{ cursor: 'pointer' }}
+              >
+                <option value="">— Auto-detect from question &amp; answer —</option>
+                {ALL_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
             </div>
 
             <button
