@@ -10,7 +10,7 @@ interface TrackedQuery {
   _id: string;
   ticketId: string;
   question: string;
-  status: 'active' | 'in-review' | 'resolved';
+  status: 'active' | 'in-review' | 'resolved' | 'escalated';
   proposedAnswer?: string;
   approvals: string[];
   requiredApprovals: number;
@@ -135,8 +135,9 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
     }
   };
 
-  const handleTrackQuery = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Track query
+  const handleTrackQuery = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!trackTicketId.trim()) return;
 
     setTracking(true);
@@ -246,11 +247,11 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
           )}
         </div>
 
-        {/* Track Query Section */}
-        <div className="glass-card" style={{ animation: 'slideUp 0.5s ease 0.1s both' }} id="track-query-section">
-          <div className="section-title">
-            <span className="section-title-icon">🔎</span>
-            Track Your Query
+            {trackedQuery && (
+              <div style={{ animation: 'slideUp 0.4s ease' }}>
+                <QueryStatusCard query={trackedQuery} onEscalated={() => { handleTrackQuery(); fetchMyQueries(); }} />
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleTrackQuery} className="mb-lg">
@@ -288,6 +289,21 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ===== Similar FAQ Item with match %, reviews, verified ===== */
+function SimilarFAQItem({ faq, rank }: { faq: any; rank: number }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Simulate a match score from the vector search score field (Qdrant returns a score 0-1)
+  const matchScore = faq.score
+    ? Math.round(faq.score * 100)
+    : Math.max(95 - rank * 12, 40);
+
+  // Review count (from the FAQ data or default)
+  const reviewCount = faq.reviewCount || faq.upvotes || 0;
 
       {/* User's Queries Section */}
       <div className="glass-card mt-2xl" style={{ animation: 'slideUp 0.5s ease 0.2s both' }} id="my-queries-section">
@@ -347,7 +363,35 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
   );
 }
 
-function QueryStatusCard({ query }: { query: TrackedQuery }) {
+
+/* ===== Query Status Card (right sidebar) ===== */
+function QueryStatusCard({ query, onEscalated }: { query: TrackedQuery; onEscalated?: () => void }) {
+  const [escalating, setEscalating] = useState(false);
+  const [escalateError, setEscalateError] = useState('');
+
+  const handleEscalate = async () => {
+    if (!confirm('Are you sure you want to escalate this query to an admin?')) return;
+    setEscalating(true);
+    setEscalateError('');
+    try {
+      const res = await fetch('/api/queries/escalate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId: query.ticketId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (onEscalated) onEscalated();
+      } else {
+        setEscalateError(data.error || 'Failed to escalate');
+      }
+    } catch {
+      setEscalateError('Network error. Please try again.');
+    } finally {
+      setEscalating(false);
+    }
+  };
+
   return (
     <div>
       <div style={{
@@ -369,12 +413,16 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
         </span>
       </div>
 
-      <div style={{ position: 'relative' }}>
-        <StatusTracker
-          status={query.status}
-          approvals={query.approvals?.length || 0}
-          requiredApprovals={query.requiredApprovals || 3}
-        />
+      {/* Status Timeline */}
+      <div className="rq-timeline-section">
+        <div className="rq-timeline-label">Query Status Timeline</div>
+        <div style={{ position: 'relative' }}>
+          <StatusTracker
+            status={query.status === 'escalated' ? 'resolved' : query.status}
+            approvals={query.approvals?.length || 0}
+            requiredApprovals={query.requiredApprovals || 3}
+          />
+        </div>
       </div>
 
       {query.status === 'in-review' && (
@@ -391,20 +439,39 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
         </div>
       )}
 
-      {query.status === 'resolved' && query.proposedAnswer && (
-        <div className="mt-lg" style={{
-          padding: 'var(--space-md)',
-          background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(16, 185, 129, 0.2)',
-          borderRadius: 'var(--radius-md)',
-        }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--accent-green-light)', fontWeight: 600, marginBottom: '4px' }}>
-            ✅ Resolved Answer
+      {/* Resolved/Escalated Answer */}
+      {(query.status === 'resolved' || query.status === 'escalated') && query.proposedAnswer && (
+        <div className="rq-resolved-answer">
+          <div className="rq-resolved-label">
+            {query.status === 'escalated' ? '📝 Proposed Answer (Escalated)' : '✅ Resolved Answer'}
           </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
-            {query.proposedAnswer}
-          </div>
+          <div className="rq-resolved-text">{query.proposedAnswer}</div>
+          
+          {query.status === 'resolved' && (query.approvals?.length || 0) >= (query.requiredApprovals || 3) && (
+            <div className="rq-escalate-section" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border-light)' }}>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)' }}>
+                Not satisfied with this answer?
+              </p>
+              {escalateError && <div className="error-alert" style={{ marginBottom: 'var(--space-sm)' }}>{escalateError}</div>}
+              <button 
+                className="btn btn-secondary w-full" 
+                onClick={handleEscalate}
+                disabled={escalating}
+              >
+                {escalating ? 'Escalating...' : '🚨 Escalate to Admin'}
+              </button>
+            </div>
+          )}
         </div>
+      )}
+
+      {query.status === 'escalated' && (
+         <div style={{ marginTop: 'var(--space-md)', padding: 'var(--space-md)', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', borderLeft: '4px solid #ef4444' }}>
+            <div style={{ fontWeight: 500, color: '#ef4444', marginBottom: 'var(--space-xs)' }}>🚨 Escalated to Admin</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              This query has been escalated. An admin will review and resolve it shortly.
+            </div>
+         </div>
       )}
     </div>
   );
