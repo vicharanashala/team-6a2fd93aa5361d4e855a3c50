@@ -6,8 +6,21 @@ import { sanitizeInput, escapeRegex } from '@/lib/security';
 import { checkRateLimit, getClientIp, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 import { searchFaqs, addFaqToQdrant, deleteFaqFromQdrant } from '@/lib/qdrant';
 import { randomUUID } from 'crypto';
+import { searchFaqs, addFaqToQdrant, deleteFaqFromQdrant, generateQdrantId } from '@/lib/qdrant';
 
 export const dynamic = 'force-dynamic';
+
+// Helper to check admin authentication (supports both role-based and legacy token)
+async function isAdminAuthenticated(): Promise<boolean> {
+  const cookieStore = await cookies();
+  const adminRole = cookieStore.get('admin_role');
+  if (adminRole && (adminRole.value === 'super_admin' || adminRole.value === 'admin')) {
+    return true;
+  }
+  // Legacy fallback
+  const adminToken = cookieStore.get('admin_token');
+  return !!(adminToken && adminToken.value === 'authenticated');
+}
 
 // GET /api/faqs — list all FAQs or search
 export async function GET(request: NextRequest) {
@@ -55,9 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check admin auth
-    const cookieStore = await cookies();
-    const adminToken = cookieStore.get('admin_token');
-    if (!adminToken || adminToken.value !== 'authenticated') {
+    if (!(await isAdminAuthenticated())) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -72,6 +83,7 @@ export async function POST(request: NextRequest) {
 
     const db = await getDb();
     const qdrantId = randomUUID();
+    const qdrantId = generateQdrantId();
     const result = await db.collection('faqs').insertOne({
       question,
       answer,
@@ -109,9 +121,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check admin auth
-    const cookieStore = await cookies();
-    const adminToken = cookieStore.get('admin_token');
-    if (!adminToken || adminToken.value !== 'authenticated') {
+    if (!(await isAdminAuthenticated())) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
