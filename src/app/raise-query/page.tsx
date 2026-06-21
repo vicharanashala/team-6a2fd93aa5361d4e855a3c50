@@ -393,6 +393,14 @@ function QueryStatusCard({ query, onEscalated }: { query: TrackedQuery; onEscala
   };
 
   return (
+    <div className="rq-status-card">
+      {/* Ticket ID */}
+      <div className="rq-ticket-block">
+        <div className="rq-ticket-label">Ticket ID</div>
+        <div className="rq-ticket-id-value">{query.ticketId}</div>
+      </div>
+
+  return (
     <div>
       <div style={{
         padding: 'var(--space-md)',
