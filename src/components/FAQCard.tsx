@@ -9,6 +9,29 @@ interface FAQCardProps {
   defaultExpanded?: boolean;
 }
 
+const formatQuestion = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/^\s*\d+(?:\.\d+)*[.\s]*/, '');
+  cleaned = cleaned.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
+const formatAnswer = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
 export default function FAQCard({ question, answer, category, defaultExpanded = false }: FAQCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -26,13 +49,13 @@ export default function FAQCard({ question, answer, category, defaultExpanded = 
       }}
     >
       <div className="faq-card-header">
-        <h3 className="faq-card-question">{question}</h3>
+        <h3 className="faq-card-question">{formatQuestion(question)}</h3>
         <div className="faq-card-toggle">▼</div>
       </div>
 
       {expanded && (
         <div className="faq-card-answer">
-          <p>{answer}</p>
+          <p>{formatAnswer(answer)}</p>
           {category && (
             <span className="badge badge-review faq-card-category">
               {category}

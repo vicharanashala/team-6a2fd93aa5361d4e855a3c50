@@ -12,6 +12,29 @@ interface FAQ {
   createdAt: string;
 }
 
+const formatQuestion = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/^\s*\d+(?:\.\d+)*[.\s]*/, '');
+  cleaned = cleaned.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
+const formatAnswer = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
@@ -264,8 +287,8 @@ export default function AdminDashboardPage() {
                   }}
                 >
                   <div className="admin-faq-content">
-                    <div className="admin-faq-question">{faq.question}</div>
-                    <div className="admin-faq-answer">{faq.answer}</div>
+                    <div className="admin-faq-question">{formatQuestion(faq.question)}</div>
+                    <div className="admin-faq-answer">{formatAnswer(faq.answer)}</div>
                     {faq.category && (
                       <span className="badge badge-review" style={{ marginTop: '8px', display: 'inline-flex' }}>
                         {faq.category}

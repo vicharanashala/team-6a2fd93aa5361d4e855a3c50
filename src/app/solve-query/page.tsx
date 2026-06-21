@@ -21,6 +21,29 @@ export default function SolveQueryPage() {
   );
 }
 
+const formatQuestion = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/^\s*\d+(?:\.\d+)*[.\s]*/, '');
+  cleaned = cleaned.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
+const formatAnswer = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
 function SolveQueryContent({ user }: { user: { userId: string; username: string } }) {
   const [query, setQuery] = useState<SolveQuery | null>(null);
   const [loading, setLoading] = useState(false);
@@ -170,7 +193,7 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
               </span>
             </div>
 
-            <h2 className="solve-query-question">{query.question}</h2>
+            <h2 className="solve-query-question">{formatQuestion(query.question)}</h2>
 
             {error && <div className="error-alert">{error}</div>}
             {message && (
@@ -239,7 +262,7 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
                     Proposed Answer
                   </div>
                   <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                    {query.proposedAnswer}
+                    {formatAnswer(query.proposedAnswer)}
                   </p>
                 </div>
 

@@ -84,7 +84,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
       try {
         const res = await fetch(`/api/faqs?q=${encodeURIComponent(question.trim())}`);
         const data = await res.json();
-        
+
         if (data.faqs) {
           // Take top 3
           setSimilarFaqs(data.faqs.slice(0, 3));
@@ -325,7 +325,7 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
                     {q.status === 'in-review' ? 'In Review' : q.status.charAt(0).toUpperCase() + q.status.slice(1)}
                   </span>
                 </div>
-                <div className="my-query-question">{q.question}</div>
+                <div className="my-query-question">{formatQuestion(q.question)}</div>
                 <div className="my-query-date">
                   {new Date(q.createdAt).toLocaleDateString('en-IN', {
                     day: 'numeric', month: 'short', year: 'numeric',
@@ -346,6 +346,29 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
   );
 }
 
+const formatQuestion = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/^\s*\d+(?:\.\d+)*[.\s]*/, '');
+  cleaned = cleaned.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
+const formatAnswer = (text: string) => {
+  if (!text) return text;
+  let cleaned = text.replace(/§\s*([a-z]?)/g, (match, p1) => {
+    return p1 ? p1.toUpperCase() : '';
+  });
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+};
+
 function QueryStatusCard({ query }: { query: TrackedQuery }) {
   return (
     <div>
@@ -360,7 +383,7 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
           Ticket: {query.ticketId}
         </div>
         <div style={{ fontWeight: 600, marginBottom: 'var(--space-sm)' }}>
-          {query.question}
+          {formatQuestion(query.question)}
         </div>
         <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
           <span className="badge-dot" />
@@ -401,7 +424,7 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
             ✅ Resolved Answer
           </div>
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
-            {query.proposedAnswer}
+            {formatAnswer(query.proposedAnswer)}
           </div>
         </div>
       )}
