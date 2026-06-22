@@ -7,6 +7,7 @@ interface SolveQuery {
   _id: string;
   ticketId: string;
   question: string;
+  difficulty?: string;
   status: 'active' | 'in-review' | 'resolved' | 'escalated';
   proposedAnswer?: string;
   approvals: string[];
@@ -307,6 +308,11 @@ function QueryCardItem({
           {queryData.createdAt && (
             <span className="query-timestamp">
               📅 {formatDate(queryData.createdAt)}
+            </span>
+          )}
+          {queryData.difficulty && queryData.difficulty !== 'Unrated' && (
+            <span className="badge" style={{ backgroundColor: 'var(--bg-glass)', border: '1px solid var(--border-light)' }}>
+              🧠 {queryData.difficulty}
             </span>
           )}
         </div>

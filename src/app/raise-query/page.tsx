@@ -11,6 +11,7 @@ interface TrackedQuery {
   ticketId: string;
   title?: string;
   question: string;
+  difficulty?: string;
   status: 'active' | 'in-review' | 'resolved' | 'escalated';
   proposedAnswer?: string;
   approvals: string[];
@@ -415,6 +416,11 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
                         <span className="badge-dot" />
                         {q.status === 'in-review' ? 'In Review' : q.status.charAt(0).toUpperCase() + q.status.slice(1)}
                       </span>
+                      {q.difficulty && q.difficulty !== 'Unrated' && (
+                        <span className="badge" style={{ backgroundColor: 'var(--bg-glass)', border: '1px solid var(--border-light)' }}>
+                          🧠 {q.difficulty}
+                        </span>
+                      )}
                     </div>
                     <div className="my-query-question">{q.title || q.question}</div>
                     <div className="my-query-date">
@@ -589,10 +595,17 @@ function QueryStatusCard({ query, onEscalated }: { query: TrackedQuery; onEscala
       {/* Query Info */}
       <div className="rq-status-info">
         <div className="rq-status-question">{query.title || query.question}</div>
-        <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
-          <span className="badge-dot" />
-          {query.status === 'in-review' ? 'In Review' : query.status.charAt(0).toUpperCase() + query.status.slice(1)}
-        </span>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
+            <span className="badge-dot" />
+            {query.status === 'in-review' ? 'In Review' : query.status.charAt(0).toUpperCase() + query.status.slice(1)}
+          </span>
+          {query.difficulty && query.difficulty !== 'Unrated' && (
+            <span className="badge" style={{ backgroundColor: 'var(--bg-glass)', border: '1px solid var(--border-light)' }}>
+              🧠 {query.difficulty}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Status Timeline */}
