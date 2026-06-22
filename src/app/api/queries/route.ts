@@ -5,6 +5,11 @@ import { sanitizeInput } from '@/lib/security';
 import { checkRateLimit, getClientIp, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 import { verifySession } from '@/lib/session';
 import { ObjectId } from 'mongodb';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+
+const execAsync = promisify(exec);
 
 export const dynamic = 'force-dynamic';
 
@@ -144,10 +149,26 @@ export async function POST(request: NextRequest) {
     const db = await getDb();
     const ticketId = generateTicketId();
 
+    // Predict difficulty using the Python NLP module
+    let difficulty = 'Unrated';
+    try {
+      // Escape quotes for Windows command line
+      const escapedQuestion = question.replace(/"/g, '""');
+      // Absolute path to predict.py based on user's directory structure
+      const pythonScriptPath = "c:\\Users\\HP\\OneDrive\\Desktop\\faq project\\predict.py";
+      const { stdout } = await execAsync(`python "${pythonScriptPath}" "${escapedQuestion}"`);
+      if (stdout && stdout.trim()) {
+        difficulty = stdout.trim();
+      }
+    } catch (e) {
+      console.error('Failed to predict difficulty:', e);
+    }
+
     await db.collection('queries').insertOne({
       ticketId,
       title: title || question.substring(0, 60),
       question,
+      difficulty,
       status: 'active',
       proposedAnswer: null,
       approvals: [],
