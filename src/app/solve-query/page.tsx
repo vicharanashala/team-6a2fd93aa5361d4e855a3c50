@@ -65,18 +65,22 @@ function SolveQueryContent({ user }: { user: { userId: string; username: string 
     fetchQueries(skippedIds);
   }, []);
 
-  const handleSkip = (queryId: string) => {
-    const nextSkipped = [...skippedIds, queryId];
-    setSkippedIds(nextSkipped);
-    fetchQueries(nextSkipped);
-  };
+const handleSkip = (queryId: string) => {
+  setSkippedIds((prev) => {
+    const next = prev.includes(queryId) ? prev : [...prev, queryId];
+    fetchQueries(next);
+    return next;
+  });
+};
 
-  const handleActionSuccess = (queryId: string) => {
-    // Treat solved/approved queries as excluded to fetch new replacements
-    const nextSkipped = [...skippedIds, queryId];
-    setSkippedIds(nextSkipped);
-    fetchQueries(nextSkipped);
-  };
+const handleActionSuccess = (queryId: string) => {
+  // Treat solved/approved queries as excluded to fetch new replacements
+  setSkippedIds((prev) => {
+    const next = prev.includes(queryId) ? prev : [...prev, queryId];
+    fetchQueries(next);
+    return next;
+  });
+};
 
   return (
     <div className="content-wrapper">
