@@ -5,6 +5,11 @@ import { sanitizeInput } from '@/lib/security';
 import { checkRateLimit, getClientIp, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 import { verifySession } from '@/lib/session';
 import { ObjectId } from 'mongodb';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+
+const execAsync = promisify(exec);
 
 export const dynamic = 'force-dynamic';
 
@@ -48,18 +53,59 @@ export async function GET(request: NextRequest) {
     }
 
     if (status === 'active') {
-      // Get one random active query for solving
-      const activeQueries = await db
-        .collection('queries')
-        .find({ status: { $in: ['active', 'in-review'] } })
-        .toArray();
-
-      if (activeQueries.length === 0) {
-        return Response.json({ query: null });
+      const user = await verifySession();
+      if (!user) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
 
-      const randomIndex = Math.floor(Math.random() * activeQueries.length);
-      return Response.json({ query: activeQueries[randomIndex] });
+      // Auto-escalate queries unresolved (active/in-review) for 48 hours
+      const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      await db.collection('queries').updateMany(
+        {
+          status: { $in: ['active', 'in-review'] },
+          createdAt: { $lt: fortyEightHoursAgo }
+        },
+        {
+          $set: {
+            status: 'escalated',
+            escalatedAt: new Date(),
+            autoEscalated: true,
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+
+      // Support exclude param for skipped queries
+      const excludeIds = searchParams.get('exclude')?.split(',').filter(Boolean) || [];
+      const excludeObjectIds = excludeIds.map(id => {
+        try {
+          return new ObjectId(id);
+        } catch {
+          return null;
+        }
+      }).filter((id): id is ObjectId => id !== null);
+
+      const queryFilter: any = {
+        userId: { $ne: new ObjectId(user.userId) },
+        status: { $in: ['active', 'in-review', 'escalated'] },
+        createdAt: { $gte: tenDaysAgo },
+        approvals: { $ne: user.userId }
+      };
+
+      if (excludeObjectIds.length > 0) {
+        queryFilter._id = { $nin: excludeObjectIds };
+      }
+
+      // Priority of which was asked first: sort by createdAt ascending (1)
+      const queries = await db.collection('queries')
+        .find(queryFilter)
+        .sort({ createdAt: 1 })
+        .limit(10)
+        .toArray();
+
+      return Response.json({ queries });
     }
 
     // Return all queries
@@ -94,6 +140,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const question = sanitizeInput(body.question || '');
+    const title = sanitizeInput(body.title || '');
 
     if (!question) {
       return Response.json({ error: 'Question is required' }, { status: 400 });
@@ -102,13 +149,32 @@ export async function POST(request: NextRequest) {
     const db = await getDb();
     const ticketId = generateTicketId();
 
+    // Predict difficulty using the Python NLP module
+    let difficulty = 'Unrated';
+    try {
+      // Escape quotes for Windows command line
+      const escapedQuestion = question.replace(/"/g, '""');
+      // Absolute path to predict.py based on user's directory structure
+      const pythonScriptPath = "c:\\Users\\HP\\OneDrive\\Desktop\\faq project\\predict.py";
+      const { stdout } = await execAsync(`python "${pythonScriptPath}" "${escapedQuestion}"`);
+      if (stdout && stdout.trim()) {
+        difficulty = stdout.trim();
+      }
+    } catch (e) {
+      console.error('Failed to predict difficulty:', e);
+    }
+
     await db.collection('queries').insertOne({
       ticketId,
+      title: title || question.substring(0, 60),
       question,
+      difficulty,
       status: 'active',
       proposedAnswer: null,
       approvals: [],
       requiredApprovals: 3,
+      upvotes: 0,
+      upvotedBy: [],
       userId: new ObjectId(user.userId),
       username: user.username,
       createdAt: new Date(),

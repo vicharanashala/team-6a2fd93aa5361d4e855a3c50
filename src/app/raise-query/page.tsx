@@ -9,13 +9,17 @@ import FAQCard from '@/components/FAQCard';
 interface TrackedQuery {
   _id: string;
   ticketId: string;
+  title?: string;
   question: string;
-  status: 'active' | 'in-review' | 'resolved';
+  difficulty?: string;
+  status: 'active' | 'in-review' | 'resolved' | 'escalated';
   proposedAnswer?: string;
   approvals: string[];
   requiredApprovals: number;
   createdAt: string;
 }
+
+type FlowStep = 'write' | 'results' | 'generate-title' | 'submitted';
 
 export default function RaiseQueryPage() {
   return (
@@ -26,7 +30,10 @@ export default function RaiseQueryPage() {
 }
 
 function RaiseQueryContent({ user }: { user: { userId: string; username: string } }) {
-  // Submit query state
+  // Flow state
+  const [flowStep, setFlowStep] = useState<FlowStep>('write');
+
+  // Write query state
   const [question, setQuestion] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submittedTicketId, setSubmittedTicketId] = useState<string | null>(null);
@@ -36,6 +43,14 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
   const [similarFaqs, setSimilarFaqs] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Search state
+  const [similarFaqs, setSimilarFaqs] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Title generation state
+  const [generatedTitle, setGeneratedTitle] = useState('');
+  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
 
   // Track query state
   const [trackTicketId, setTrackTicketId] = useState('');
@@ -115,15 +130,18 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
       const res = await fetch('/api/queries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question.trim() }),
+        body: JSON.stringify({
+          question: question.trim(),
+          title: generatedTitle || question.trim().substring(0, 60),
+        }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
         setSubmittedTicketId(data.ticketId);
-        setQuestion('');
-        fetchMyQueries(); // Refresh user's queries
+        setFlowStep('submitted');
+        fetchMyQueries();
       } else {
         setSubmitError(data.error || 'Failed to submit query');
       }
@@ -134,8 +152,9 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
     }
   };
 
-  const handleTrackQuery = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Track query
+  const handleTrackQuery = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!trackTicketId.trim()) return;
 
     setTracking(true);
@@ -158,6 +177,16 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
     }
   };
 
+  // Reset flow
+  const handleReset = () => {
+    setFlowStep('write');
+    setQuestion('');
+    setSimilarFaqs([]);
+    setGeneratedTitle('');
+    setSubmittedTicketId(null);
+    setSubmitError('');
+  };
+
   return (
     <div className="content-wrapper">
       <div className="page-header">
@@ -165,47 +194,63 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
         <p>Ask your question and get help from the IIT Ropar community</p>
       </div>
 
-      <div className="query-sections">
-        {/* Submit Query Section */}
-        <div className="glass-card" style={{ animation: 'slideUp 0.5s ease' }} id="submit-query-section">
-          <div className="section-title">
-            <span className="section-title-icon">✍️</span>
-            Submit a Query
-          </div>
+      <div className="rq-layout">
+        {/* ===== LEFT COLUMN: Main Form ===== */}
+        <div className="rq-main">
 
-          {submittedTicketId ? (
-            <div>
-              <TicketDisplay ticketId={submittedTicketId} />
-              <button
-                className="btn btn-secondary w-full mt-lg"
-                onClick={() => {
-                  setSubmittedTicketId(null);
-                }}
-                id="submit-another-btn"
-              >
-                Submit Another Query
-              </button>
+          {/* Step 1: Write Query */}
+          <div className="glass-card" style={{ animation: 'slideUp 0.5s ease' }} id="write-query-section">
+            <div className="section-title">
+              <span className="section-title-icon">✍️</span>
+              Write Your Query
             </div>
-          ) : (
-            <form onSubmit={handleSubmitQuery}>
-              {submitError && (
-                <div className="error-alert">{submitError}</div>
-              )}
-              <div className="input-group mb-lg">
-                <label className="input-label" htmlFor="query-input">
-                  Your Question
-                </label>
-                <textarea
-                  id="query-input"
-                  className="input textarea"
-                  placeholder="Describe your question in detail..."
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  rows={5}
-                  required
-                />
-              </div>
 
+            {flowStep === 'submitted' && submittedTicketId ? (
+              <div>
+                <TicketDisplay ticketId={submittedTicketId} />
+                <div className="rq-success-info">
+                  <div className="rq-success-badge">
+                    <span>✅</span> Your query is now live for peers to solve
+                  </div>
+                  {generatedTitle && (
+                    <div className="rq-generated-title-display">
+                      <span className="rq-title-label">Generated Title</span>
+                      <span className="rq-title-text">{generatedTitle}</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="btn btn-secondary w-full mt-lg"
+                  onClick={handleReset}
+                  id="submit-another-btn"
+                >
+                  Submit Another Query
+                </button>
+              </div>
+            ) : (
+              <div>
+                {submitError && (
+                  <div className="error-alert">{submitError}</div>
+                )}
+
+                <div className="input-group mb-lg">
+                  <label className="input-label" htmlFor="query-input">
+                    Describe your question in detail
+                  </label>
+                  <textarea
+                    id="query-input"
+                    className="input textarea"
+                    placeholder="Type your question here... Be as detailed as possible so we can find the best answer or route it to the right peers."
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    rows={5}
+                    disabled={flowStep === 'generate-title'}
+                  />
+                </div>
+
+                {/* Step 1 action: Search FAQs */}
+                {flowStep === 'write' && (
+    
               {/* Real-time Semantic Search Results */}
               {isSearching ? (
                 <div style={{ marginBottom: 'var(--space-md)', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -234,113 +279,232 @@ function RaiseQueryContent({ user }: { user: { userId: string; username: string 
               ) : null}
 
               <button
+                    className="btn btn-primary w-full"
+                    onClick={handleSearchFaqs}
+                    disabled={isSearching || !question.trim()}
+                    id="search-faqs-btn"
+                  >
+                    {isSearching ? (
+                      <>
+                        <span className="rq-btn-spinner" />
+                        Searching FAQs...
+                      </>
+                    ) : (
+                      '🔍 Search Existing FAQs'
+                    )}
+                  </button>
+                )}
+
+                {/* Step 2: Show Results */}
+                {flowStep === 'results' && (
+                  <div className="rq-results-section" style={{ animation: 'slideUp 0.4s ease' }}>
+                    {similarFaqs.length > 0 ? (
+                      <>
+                        <div className="rq-results-header">
+                          <span className="rq-results-icon">💡</span>
+                          <span>We found {similarFaqs.length} similar FAQ{similarFaqs.length > 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="rq-results-list">
+                          {similarFaqs.map((faq, idx) => (
+                            <SimilarFAQItem key={`similar-${idx}`} faq={faq} rank={idx + 1} />
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rq-no-results">
+                        <span className="rq-no-results-icon">📭</span>
+                        <span>No similar FAQs found in our database.</span>
+                      </div>
+                    )}
+
+                    <div className="rq-didnt-find">
+                      <div className="rq-didnt-find-text">
+                        {similarFaqs.length > 0
+                          ? "Didn't find what you were looking for?"
+                          : "Let's get your question answered by peers!"}
+                      </div>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleAskNewQuery}
+                        id="ask-new-query-btn"
+                      >
+                        🚀 Ask New Query
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => setFlowStep('write')}
+                      >
+                        ← Edit Query
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: Generated Title + Confirm */}
+                {flowStep === 'generate-title' && (
+                  <div className="rq-title-section" style={{ animation: 'slideUp 0.4s ease' }}>
+                    <div className="rq-title-header">
+                      <span className="rq-title-header-icon">🤖</span>
+                      AI-Generated Title
+                    </div>
+
+                    {isGeneratingTitle ? (
+                      <div className="rq-title-generating">
+                        <span className="rq-btn-spinner" />
+                        Generating a concise title...
+                      </div>
+                    ) : (
+                      <>
+                        <div className="input-group mb-lg">
+                          <label className="input-label" htmlFor="title-input">
+                            Review & edit the title
+                          </label>
+                          <input
+                            id="title-input"
+                            className="input"
+                            type="text"
+                            value={generatedTitle}
+                            onChange={(e) => setGeneratedTitle(e.target.value)}
+                            placeholder="Query title..."
+                          />
+                          <div className="rq-title-hint">
+                            This title will be shown to peers who can solve your query.
+                          </div>
+                        </div>
+
+                        <button
+                          className="btn btn-primary w-full"
+                          onClick={handleSubmitQuery}
+                          disabled={submitting || !generatedTitle.trim()}
+                          id="confirm-submit-btn"
+                        >
+                          {submitting ? (
+                            <>
+                              <span className="rq-btn-spinner" />
+                              Submitting...
+                            </>
+                          ) : (
+                            '✅ Confirm & Submit Query'
+                          )}
+                        </button>
+                        <button
+                          className="btn btn-ghost w-full mt-md"
+                          onClick={() => setFlowStep('results')}
+                        >
+                          ← Back to Results
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* User's Queries Section */}
+          <div className="glass-card mt-lg" style={{ animation: 'slideUp 0.5s ease 0.2s both' }} id="my-queries-section">
+            <div className="section-title" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                <span className="section-title-icon">📋</span>
+                My Queries
+              </div>
+              <span className="badge badge-review">{myQueries.length} total</span>
+            </div>
+
+            {loadingMyQueries ? (
+              <div>
+                {[1, 2].map((i) => (
+                  <div key={i} style={{ padding: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
+                    <div className="skeleton skeleton-title" />
+                    <div className="skeleton skeleton-text" style={{ width: '60%' }} />
+                  </div>
+                ))}
+              </div>
+            ) : myQueries.length > 0 ? (
+              <div className="my-queries-list">
+                {myQueries.map((q) => (
+                  <div
+                    key={q._id}
+                    className="my-query-item"
+                    onClick={() => {
+                      setTrackTicketId(q.ticketId);
+                      setTrackedQuery(q);
+                    }}
+                  >
+                    <div className="my-query-top">
+                      <span className="my-query-ticket">{q.ticketId}</span>
+                      <span className={`badge badge-${q.status === 'in-review' ? 'review' : q.status}`}>
+                        <span className="badge-dot" />
+                        {q.status === 'in-review' ? 'In Review' : q.status.charAt(0).toUpperCase() + q.status.slice(1)}
+                      </span>
+                      {q.difficulty && q.difficulty !== 'Unrated' && (
+                        <span className="badge" style={{ backgroundColor: 'var(--bg-glass)', border: '1px solid var(--border-light)' }}>
+                          🧠 {q.difficulty}
+                        </span>
+                      )}
+                    </div>
+                    <div className="my-query-question">{q.title || formatQuestion(q.question)}</div>
+                    <div className="my-query-date">
+                      {new Date(q.createdAt).toLocaleDateString('en-IN', {
+                        day: 'numeric', month: 'short', year: 'numeric',
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-icon">📭</div>
+                <h3>No queries yet</h3>
+                <p>Your submitted queries will appear here automatically.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ===== RIGHT COLUMN: Tracking Sidebar ===== */}
+        <div className="rq-sidebar">
+          {/* Track Query */}
+          <div className="glass-card" style={{ animation: 'slideUp 0.5s ease 0.1s both' }} id="track-query-section">
+            <div className="section-title">
+              <span className="section-title-icon">🔎</span>
+              Track Your Query
+            </div>
+
+            <form onSubmit={handleTrackQuery} className="mb-lg">
+              {trackError && (
+                <div className="error-alert">{trackError}</div>
+              )}
+              <div className="input-group mb-md">
+                <label className="input-label" htmlFor="track-input">
+                  Ticket ID
+                </label>
+                <input
+                  id="track-input"
+                  className="input"
+                  type="text"
+                  placeholder="e.g. abc45-df43-88io-123a"
+                  value={trackTicketId}
+                  onChange={(e) => setTrackTicketId(e.target.value)}
+                  required
+                />
+              </div>
+              <button
                 type="submit"
-                className="btn btn-primary w-full"
-                disabled={submitting || !question.trim()}
-                id="submit-query-btn"
+                className="btn btn-secondary w-full"
+                disabled={tracking || !trackTicketId.trim()}
+                id="track-query-btn"
               >
-                {submitting ? 'Submitting...' : '🚀 Submit Query'}
+                {tracking ? 'Tracking...' : '📍 Track Query'}
               </button>
             </form>
-          )}
-        </div>
-
-        {/* Track Query Section */}
-        <div className="glass-card" style={{ animation: 'slideUp 0.5s ease 0.1s both' }} id="track-query-section">
-          <div className="section-title">
-            <span className="section-title-icon">🔎</span>
-            Track Your Query
-          </div>
-
-          <form onSubmit={handleTrackQuery} className="mb-lg">
-            {trackError && (
-              <div className="error-alert">{trackError}</div>
+            {trackedQuery && (
+              <div style={{ animation: 'slideUp 0.4s ease' }}>
+                <QueryStatusCard query={trackedQuery} onEscalated={() => { handleTrackQuery(); fetchMyQueries(); }} />
+              </div>
             )}
-            <div className="input-group mb-md">
-              <label className="input-label" htmlFor="track-input">
-                Ticket ID
-              </label>
-              <input
-                id="track-input"
-                className="input"
-                type="text"
-                placeholder="e.g. abc45-df43-88io-123a"
-                value={trackTicketId}
-                onChange={(e) => setTrackTicketId(e.target.value)}
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="btn btn-secondary w-full"
-              disabled={tracking || !trackTicketId.trim()}
-              id="track-query-btn"
-            >
-              {tracking ? 'Tracking...' : '📍 Track Query'}
-            </button>
-          </form>
-
-          {trackedQuery && (
-            <div style={{ animation: 'slideUp 0.4s ease' }}>
-              <QueryStatusCard query={trackedQuery} />
-            </div>
-          )}
+          </div>
         </div>
-      </div>
-
-      {/* User's Queries Section */}
-      <div className="glass-card mt-2xl" style={{ animation: 'slideUp 0.5s ease 0.2s both' }} id="my-queries-section">
-        <div className="section-title" style={{ justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-            <span className="section-title-icon">📋</span>
-            My Queries
-          </div>
-          <span className="badge badge-review">{myQueries.length} total</span>
-        </div>
-
-        {loadingMyQueries ? (
-          <div>
-            {[1, 2].map((i) => (
-              <div key={i} style={{ padding: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
-                <div className="skeleton skeleton-title" />
-                <div className="skeleton skeleton-text" style={{ width: '60%' }} />
-              </div>
-            ))}
-          </div>
-        ) : myQueries.length > 0 ? (
-          <div className="my-queries-list">
-            {myQueries.map((q) => (
-              <div
-                key={q._id}
-                className="my-query-item"
-                onClick={() => {
-                  setTrackTicketId(q.ticketId);
-                  setTrackedQuery(q);
-                }}
-              >
-                <div className="my-query-top">
-                  <span className="my-query-ticket">{q.ticketId}</span>
-                  <span className={`badge badge-${q.status === 'in-review' ? 'review' : q.status}`}>
-                    <span className="badge-dot" />
-                    {q.status === 'in-review' ? 'In Review' : q.status.charAt(0).toUpperCase() + q.status.slice(1)}
-                  </span>
-                </div>
-                <div className="my-query-question">{formatQuestion(q.question)}</div>
-                <div className="my-query-date">
-                  {new Date(q.createdAt).toLocaleDateString('en-IN', {
-                    day: 'numeric', month: 'short', year: 'numeric',
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">
-            <div className="empty-state-icon">📭</div>
-            <h3>No queries yet</h3>
-            <p>Your submitted queries will appear here automatically.</p>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -371,36 +535,131 @@ const formatAnswer = (text: string) => {
 
 function QueryStatusCard({ query }: { query: TrackedQuery }) {
   return (
-    <div>
-      <div style={{
-        padding: 'var(--space-md)',
-        background: 'var(--bg-glass)',
-        borderRadius: 'var(--radius-md)',
-        border: '1px solid var(--border-subtle)',
-        marginBottom: 'var(--space-lg)'
-      }}>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-          Ticket: {query.ticketId}
+    <div
+      className={`rq-faq-item ${expanded ? 'expanded' : ''}`}
+      onClick={() => setExpanded(!expanded)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setExpanded(!expanded);
+        }
+      }}
+    >
+      <div className="rq-faq-top">
+        <div className="rq-faq-question">
+          <h3>{faq.question}</h3>
         </div>
+        <div className="rq-faq-toggle">{expanded ? '▲' : '▼'}</div>
+      </div>
+
+      <div className="rq-faq-meta">
+        <span className={`rq-match-badge ${matchScore >= 80 ? 'high' : matchScore >= 50 ? 'medium' : 'low'}`}>
+          {matchScore}% match
+        </span>
+        <span className="rq-review-count">
+          👁️ {reviewCount} review{reviewCount !== 1 ? 's' : ''}
+        </span>
+        {isVerified && (
+          <span className="rq-verified-badge">
+            ✅ Verified
+          </span>
+        )}
+        {faq.category && (
+          <span className="badge badge-review rq-faq-category">
+            {faq.category}
+          </span>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="rq-faq-answer" style={{ animation: 'slideDown 0.25s ease' }}>
+          <p>{faq.answer}</p>
         <div style={{ fontWeight: 600, marginBottom: 'var(--space-sm)' }}>
           {formatQuestion(query.question)}
         </div>
-        <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
-          <span className="badge-dot" />
-          {query.status === 'in-review' ? 'In Review' : query.status.charAt(0).toUpperCase() + query.status.slice(1)}
-        </span>
+      )}
+    </div>
+  );
+}
+
+
+/* ===== Query Status Card (right sidebar) ===== */
+function QueryStatusCard({ query, onEscalated }: { query: TrackedQuery; onEscalated?: () => void }) {
+  const [escalating, setEscalating] = useState(false);
+  const [escalateError, setEscalateError] = useState('');
+
+  const handleEscalate = async () => {
+    if (!confirm('Are you sure you want to escalate this query to an admin?')) return;
+    setEscalating(true);
+    setEscalateError('');
+    try {
+      const res = await fetch('/api/queries/escalate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId: query.ticketId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (onEscalated) onEscalated();
+      } else {
+        setEscalateError(data.error || 'Failed to escalate');
+      }
+    } catch {
+      setEscalateError('Network error. Please try again.');
+    } finally {
+      setEscalating(false);
+    }
+  };
+
+
+
+  return (
+    <div className="rq-status-card">
+      {/* Ticket ID */}
+      <div className="rq-ticket-block">
+        <div className="rq-ticket-label">Ticket ID</div>
+        <div className="rq-ticket-id-value">{query.ticketId}</div>
       </div>
 
-      <div style={{ position: 'relative' }}>
-        <StatusTracker
-          status={query.status}
-          approvals={query.approvals?.length || 0}
-          requiredApprovals={query.requiredApprovals || 3}
-        />
+      {/* Query Info */}
+      <div className="rq-status-info">
+        <div className="rq-status-question">{query.title || query.question}</div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <span className={`badge badge-${query.status === 'in-review' ? 'review' : query.status}`}>
+            <span className="badge-dot" />
+            {query.status === 'in-review' ? 'In Review' : query.status.charAt(0).toUpperCase() + query.status.slice(1)}
+          </span>
+          {query.difficulty && query.difficulty !== 'Unrated' && (
+            <span className="badge" style={{ backgroundColor: 'var(--bg-glass)', border: '1px solid var(--border-light)' }}>
+              🧠 {query.difficulty}
+            </span>
+          )}
+        </div>
       </div>
 
-      {query.status === 'in-review' && (
-        <div className="mt-lg">
+      {/* Status Timeline */}
+      <div className="rq-timeline-section">
+        <div className="rq-timeline-label">Query Status Timeline</div>
+        <div style={{ position: 'relative' }}>
+          <StatusTracker
+            status={query.status === 'escalated' ? 'resolved' : query.status}
+            approvals={query.approvals?.length || 0}
+            requiredApprovals={query.requiredApprovals || 3}
+          />
+        </div>
+      </div>
+
+      {/* Peer Review Progress */}
+      {(query.status === 'in-review' || query.status === 'active') && (
+        <div className="rq-review-section">
+          <div className="rq-review-header">
+            <span>Peer Review Progress</span>
+            <span className="rq-review-count-label">
+              {query.approvals?.length || 0}/{query.requiredApprovals || 3}
+            </span>
+          </div>
           <div className="approval-bar">
             <div
               className="approval-bar-fill"
@@ -408,25 +667,44 @@ function QueryStatusCard({ query }: { query: TrackedQuery }) {
             />
           </div>
           <div className="approval-text">
-            {query.approvals?.length || 0} / {query.requiredApprovals || 3} peer approvals
+            {query.approvals?.length || 0} of {query.requiredApprovals || 3} peer approvals received
           </div>
         </div>
       )}
 
-      {query.status === 'resolved' && query.proposedAnswer && (
-        <div className="mt-lg" style={{
-          padding: 'var(--space-md)',
-          background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(16, 185, 129, 0.2)',
-          borderRadius: 'var(--radius-md)',
-        }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--accent-green-light)', fontWeight: 600, marginBottom: '4px' }}>
-            ✅ Resolved Answer
+      {/* Resolved/Escalated Answer */}
+      {(query.status === 'resolved' || query.status === 'escalated') && query.proposedAnswer && (
+        <div className="rq-resolved-answer">
+          <div className="rq-resolved-label">
+            {query.status === 'escalated' ? '📝 Proposed Answer (Escalated)' : '✅ Resolved Answer'}
           </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
-            {formatAnswer(query.proposedAnswer)}
-          </div>
+          <div className="rq-resolved-text">{query.proposedAnswer}</div>
+          
+          {query.status === 'resolved' && (query.approvals?.length || 0) >= (query.requiredApprovals || 3) && (
+            <div className="rq-escalate-section" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border-light)' }}>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)' }}>
+                Not satisfied with this answer?
+              </p>
+              {escalateError && <div className="error-alert" style={{ marginBottom: 'var(--space-sm)' }}>{escalateError}</div>}
+              <button 
+                className="btn btn-secondary w-full" 
+                onClick={handleEscalate}
+                disabled={escalating}
+              >
+                {escalating ? 'Escalating...' : '🚨 Escalate to Admin'}
+              </button>
+            </div>
+          )}
         </div>
+      )}
+
+      {query.status === 'escalated' && (
+         <div style={{ marginTop: 'var(--space-md)', padding: 'var(--space-md)', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', borderLeft: '4px solid #ef4444' }}>
+            <div style={{ fontWeight: 500, color: '#ef4444', marginBottom: 'var(--space-xs)' }}>🚨 Escalated to Admin</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              This query has been escalated. An admin will review and resolve it shortly.
+            </div>
+         </div>
       )}
     </div>
   );

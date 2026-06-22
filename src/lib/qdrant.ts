@@ -1,5 +1,6 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Embedder from './embeddings';
+import { randomUUID } from 'crypto';
 
 const url = process.env.QDRANT_URL;
 const apiKey = process.env.QDRANT_API_KEY;
@@ -43,29 +44,52 @@ export async function searchFaqs(question: string, topK: number = 5) {
   });
 }
 
-export async function addFaqToQdrant(id: string, question: string, answer: string, category: string) {
-  const vector = await Embedder.embed(question);
+/**
+ * Add a FAQ to Qdrant vector database.
+ * Generates embedding from question+answer text and upserts to collection.
+ */
+export async function addFaqToQdrant(
+  qdrantId: string,
+  question: string,
+  answer: string,
+  category?: string,
+  subcategory?: string
+) {
+  const textToEmbed = `${question} ${answer}`;
+  const vector = await Embedder.embed(textToEmbed);
   await client.upsert(collectionName, {
     wait: true,
     points: [
       {
-        id,
+        id: qdrantId,
         vector,
         payload: {
           question,
           answer,
-          category,
+          category: category || '',
+          subcategory: subcategory || '',
+          tags: [],
+          createdAt: new Date().toISOString(),
         },
       },
     ],
   });
 }
 
-export async function deleteFaqFromQdrant(id: string) {
+/**
+ * Delete a FAQ from Qdrant vector database by its qdrantId.
+ */
+export async function deleteFaqFromQdrant(qdrantId: string) {
   await client.delete(collectionName, {
     wait: true,
-    points: [id],
+    points: [qdrantId],
   });
 }
 
+/**
+ * Generate a UUID for use as Qdrant point IDs
+ */
+export function generateQdrantId(): string {
+  return randomUUID();
+}
 export default client;
