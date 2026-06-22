@@ -94,4 +94,87 @@ export function generateQdrantId(): string {
   return randomUUID();
 }
 
+/**
+ * Update a FAQ in Qdrant: deletes the old point and upserts a new one with fresh embeddings.
+ * Returns the new qdrantId.
+ */
+export async function updateFaqInQdrant(
+  oldQdrantId: string,
+  question: string,
+  answer: string,
+  category?: string,
+  subcategory?: string
+): Promise<string> {
+  // Delete the old point
+  try {
+    await client.delete(collectionName, {
+      wait: true,
+      points: [oldQdrantId],
+    });
+  } catch (error) {
+    console.error('Failed to delete old Qdrant point during update:', error);
+    // Continue with upsert even if delete fails
+  }
+
+  // Generate new embedding and upsert
+  const newQdrantId = randomUUID();
+  const textToEmbed = `${question} ${answer}`;
+  const vector = await Embedder.embed(textToEmbed);
+
+  await client.upsert(collectionName, {
+    wait: true,
+    points: [
+      {
+        id: newQdrantId,
+        vector,
+        payload: {
+          question,
+          answer,
+          category: category || '',
+          subcategory: subcategory || '',
+          tags: [],
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    ],
+  });
+
+  return newQdrantId;
+}
+
+/**
+ * Retrieve all FAQ points from the Qdrant collection using scroll.
+ */
+export async function getAllFaqsFromQdrant() {
+  const allPoints: any[] = [];
+  let nextOffset: string | number | Record<string, unknown> | undefined = undefined;
+
+  // Scroll through all points in batches
+  do {
+    const response = await client.scroll(collectionName, {
+      limit: 100,
+      offset: nextOffset as string | number | undefined,
+      with_payload: true,
+      with_vector: false,
+    });
+
+    if (response.points) {
+      allPoints.push(...response.points);
+    }
+
+    nextOffset = response.next_page_offset ?? undefined;
+  } while (nextOffset !== undefined);
+
+  return allPoints.map((point) => ({
+    qdrantId: point.id,
+    question: point.payload?.question || '',
+    answer: point.payload?.answer || '',
+    category: point.payload?.category || '',
+    subcategory: point.payload?.subcategory || '',
+    tags: point.payload?.tags || [],
+    createdAt: point.payload?.createdAt || '',
+    updatedAt: point.payload?.updatedAt || '',
+  }));
+}
+
 export default client;

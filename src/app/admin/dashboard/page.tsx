@@ -30,7 +30,30 @@ interface EscalatedQuery {
   autoEscalated?: boolean;
 }
 
-type TabMode = 'faqs' | 'escalated' | 'analytics' | 'admins';
+type TabMode = 'faqs' | 'escalated' | 'analytics' | 'admins' | 'vector-db';
+
+// Utility: clean up FAQ question text for display
+// Removes § symbols, strips leading section numbering (e.g. "1.2", "2.3.1"), and capitalizes first letter
+function cleanQuestion(text: string): string {
+  let cleaned = text
+    .replace(/§/g, '')                    // Remove § symbol
+    .replace(/^\s*\d+(\.\d+)*\.?\s*/g, '') // Remove leading numbering like "1.2", "1.2.3", "1."
+    .trim();
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+// Utility: clean up FAQ answer text for display
+// Removes § symbols, and capitalizes first letter
+function cleanAnswer(text: string): string {
+  let cleaned = text.replace(/§/g, '').trim();
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -69,6 +92,19 @@ export default function AdminDashboardPage() {
   const [newAdminUser, setNewAdminUser] = useState('');
   const [newAdminPass, setNewAdminPass] = useState('');
   const [creatingAdmin, setCreatingAdmin] = useState(false);
+
+  // Vector DB state
+  const [vectorFaqs, setVectorFaqs] = useState<FAQ[]>([]);
+  const [loadingVectorFaqs, setLoadingVectorFaqs] = useState(true);
+  const [editingFaq, setEditingFaq] = useState<string | null>(null);
+  const [editQuestion, setEditQuestion] = useState('');
+  const [editAnswer, setEditAnswer] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editSubcategory, setEditSubcategory] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [vectorSearchQuery, setVectorSearchQuery] = useState('');
+  const [vectorMessage, setVectorMessage] = useState('');
+  const [vectorError, setVectorError] = useState('');
 
   // Check auth
   useEffect(() => {
@@ -150,14 +186,29 @@ export default function AdminDashboardPage() {
     }
   }, [role]);
 
+  const fetchVectorFaqs = useCallback(async () => {
+    if (role !== 'super_admin') return;
+    setLoadingVectorFaqs(true);
+    try {
+      const res = await fetch('/api/admin/vector-faqs');
+      const data = await res.json();
+      setVectorFaqs(data.faqs || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingVectorFaqs(false);
+    }
+  }, [role]);
+
   useEffect(() => {
     if (authenticated) {
       if (activeTab === 'faqs') fetchFaqs();
       if (activeTab === 'escalated') fetchEscalated();
       if (activeTab === 'analytics') fetchAnalytics();
       if (activeTab === 'admins') fetchAdmins();
+      if (activeTab === 'vector-db') fetchVectorFaqs();
     }
-  }, [authenticated, activeTab, fetchFaqs, fetchEscalated, fetchAnalytics, fetchAdmins]);
+  }, [authenticated, activeTab, fetchFaqs, fetchEscalated, fetchAnalytics, fetchAdmins, fetchVectorFaqs]);
 
   // Actions
   const handleAddFaq = async (e: React.FormEvent) => {
@@ -269,6 +320,72 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleStartEdit = (faq: FAQ) => {
+    setEditingFaq(faq._id);
+    setEditQuestion(cleanQuestion(faq.question));
+    setEditAnswer(cleanAnswer(faq.answer));
+    setEditCategory(faq.category || '');
+    setEditSubcategory(faq.subcategory || '');
+    setVectorMessage('');
+    setVectorError('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingFaq(null);
+    setEditQuestion('');
+    setEditAnswer('');
+    setEditCategory('');
+    setEditSubcategory('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingFaq || !editQuestion.trim() || !editAnswer.trim()) return;
+    setSavingEdit(true);
+    setVectorMessage('');
+    setVectorError('');
+    try {
+      const res = await fetch('/api/admin/vector-faqs', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingFaq,
+          question: editQuestion.trim(),
+          answer: editAnswer.trim(),
+          category: editCategory.trim(),
+          subcategory: editSubcategory.trim(),
+        }),
+      });
+      if (res.ok) {
+        setVectorMessage('✅ FAQ updated and re-embedded in vector database successfully!');
+        setEditingFaq(null);
+        setEditQuestion('');
+        setEditAnswer('');
+        setEditCategory('');
+        setEditSubcategory('');
+        fetchVectorFaqs();
+        setTimeout(() => setVectorMessage(''), 4000);
+      } else {
+        const data = await res.json();
+        setVectorError(data.error || 'Failed to update FAQ');
+      }
+    } catch {
+      setVectorError('Network error while updating FAQ');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const filteredVectorFaqs = vectorFaqs.filter((faq) => {
+    if (!vectorSearchQuery.trim()) return true;
+    const q = vectorSearchQuery.toLowerCase();
+    return (
+      faq.question.toLowerCase().includes(q) ||
+      faq.answer.toLowerCase().includes(q) ||
+      (faq.category || '').toLowerCase().includes(q) ||
+      (faq.subcategory || '').toLowerCase().includes(q)
+    );
+  });
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -316,6 +433,11 @@ export default function AdminDashboardPage() {
         <button className={`btn ${activeTab === 'faqs' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setActiveTab('faqs')}>
           📚 Manage FAQs
         </button>
+        {role === 'super_admin' && (
+          <button className={`btn ${activeTab === 'vector-db' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setActiveTab('vector-db')}>
+            🧠 Vector DB
+          </button>
+        )}
         {role === 'super_admin' && (
           <button className={`btn ${activeTab === 'admins' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setActiveTab('admins')}>
             👥 Admin Accounts
@@ -420,7 +542,7 @@ export default function AdminDashboardPage() {
                     </div>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(q.createdAt).toLocaleDateString()}</span>
                   </div>
-                  <h3 style={{ marginBottom: '16px', fontSize: '1.1rem' }}>{q.question}</h3>
+                  <h3 style={{ marginBottom: '16px', fontSize: '1.1rem' }}>{cleanQuestion(q.question)}</h3>
 
                   {answerTarget?._id === q._id ? (
                     <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
@@ -534,8 +656,8 @@ export default function AdminDashboardPage() {
                 {faqs.map((faq) => (
                   <div key={faq._id} className="admin-faq-item" style={{ padding: 'var(--space-md)', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
                     <div className="admin-faq-content">
-                      <div className="admin-faq-question">{faq.question}</div>
-                      <div className="admin-faq-answer">{faq.answer}</div>
+                      <div className="admin-faq-question">{cleanQuestion(faq.question)}</div>
+                      <div className="admin-faq-answer">{cleanAnswer(faq.answer)}</div>
                       {(faq.category || faq.subcategory) && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                           {faq.category && <span className="badge badge-review">{faq.category}</span>}
@@ -606,10 +728,187 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
+      {activeTab === 'vector-db' && role === 'super_admin' && (
+        <div className="glass-card" style={{ animation: 'slideUp 0.3s ease' }}>
+          <div className="section-title" style={{ justifyContent: 'space-between' }}>
+            <div className="flex items-center gap-sm"><span className="section-title-icon">🧠</span> Vector Database FAQs</div>
+            <span className="badge badge-review">{vectorFaqs.length} embedded</span>
+          </div>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-md)', fontSize: '0.9rem' }}>
+            Browse and edit FAQs stored in the Qdrant vector database. Saving changes will automatically re-generate embeddings for accurate semantic search.
+          </p>
+
+          {vectorMessage && (
+            <div style={{
+              background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)',
+              borderRadius: 'var(--radius-md)', padding: 'var(--space-md)', color: 'var(--accent-green-light)',
+              fontSize: '0.9rem', marginBottom: 'var(--space-md)',
+            }}>
+              {vectorMessage}
+            </div>
+          )}
+          {vectorError && <div className="error-alert" style={{ marginBottom: 'var(--space-md)' }}>{vectorError}</div>}
+
+          {/* Search / Filter Bar */}
+          <div style={{ marginBottom: 'var(--space-lg)' }}>
+            <div className="search-wrapper">
+              <span className="search-icon">🔍</span>
+              <input
+                className="input input-search"
+                type="text"
+                placeholder="Filter FAQs by question, answer, or category..."
+                value={vectorSearchQuery}
+                onChange={(e) => setVectorSearchQuery(e.target.value)}
+                id="vector-db-search"
+              />
+            </div>
+          </div>
+
+          {loadingVectorFaqs ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {[1, 2, 3].map((i) => (
+                <div key={i} style={{ padding: 'var(--space-md)', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)' }}>
+                  <div className="skeleton skeleton-title" />
+                  <div className="skeleton skeleton-text" style={{ marginTop: '8px', height: '40px' }} />
+                </div>
+              ))}
+            </div>
+          ) : filteredVectorFaqs.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {filteredVectorFaqs.map((faq) => (
+                <div
+                  key={faq._id}
+                  style={{
+                    padding: '20px',
+                    border: editingFaq === faq._id ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    background: editingFaq === faq._id ? 'rgba(59, 130, 246, 0.05)' : 'var(--bg-glass)',
+                    transition: 'all var(--transition-base)',
+                  }}
+                  id={`vector-faq-${faq._id}`}
+                >
+                  {editingFaq === faq._id ? (
+                    /* Inline Edit Form */
+                    <div style={{ animation: 'slideDown 0.2s ease' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--accent-blue-light)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>✏️ Editing FAQ</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace', background: 'var(--bg-glass)', padding: '2px 8px', borderRadius: 'var(--radius-sm)' }}>ID: {faq._id.slice(-8)}</span>
+                      </div>
+                      <div className="input-group mb-md">
+                        <label className="input-label">Question</label>
+                        <textarea
+                          className="input textarea"
+                          value={editQuestion}
+                          onChange={(e) => setEditQuestion(e.target.value)}
+                          rows={3}
+                          id={`edit-question-${faq._id}`}
+                        />
+                      </div>
+                      <div className="input-group mb-md">
+                        <label className="input-label">Answer</label>
+                        <textarea
+                          className="input textarea"
+                          value={editAnswer}
+                          onChange={(e) => setEditAnswer(e.target.value)}
+                          rows={5}
+                          id={`edit-answer-${faq._id}`}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div className="input-group">
+                          <label className="input-label">Category</label>
+                          <select
+                            className="input"
+                            value={editCategory}
+                            onChange={(e) => { setEditCategory(e.target.value); setEditSubcategory(''); }}
+                            id={`edit-category-${faq._id}`}
+                          >
+                            <option value="">Select a category...</option>
+                            {FAQ_CATEGORIES.map(cat => (
+                              <option key={cat.name} value={cat.name}>{cat.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Subcategory</label>
+                          <select
+                            className="input"
+                            value={editSubcategory}
+                            onChange={(e) => setEditSubcategory(e.target.value)}
+                            disabled={!editCategory}
+                            id={`edit-subcategory-${faq._id}`}
+                          >
+                            <option value="">Select a subcategory...</option>
+                            {editCategory && FAQ_CATEGORIES.find(c => c.name === editCategory)?.subcategories.map(sub => (
+                              <option key={sub} value={sub}>{sub}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={handleSaveEdit}
+                          disabled={savingEdit || !editQuestion.trim() || !editAnswer.trim()}
+                          id={`save-edit-${faq._id}`}
+                        >
+                          {savingEdit ? (
+                            <><span className="search-spinner" style={{ position: 'static', width: '14px', height: '14px', marginRight: '6px' }} /> Saving & Re-embedding...</>
+                          ) : (
+                            '💾 Save & Re-embed'
+                          )}
+                        </button>
+                        <button className="btn btn-ghost btn-sm" onClick={handleCancelEdit} disabled={savingEdit}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Display View */
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '8px', lineHeight: 1.4 }}>{cleanQuestion(faq.question)}</h3>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '12px' }}>{cleanAnswer(faq.answer)}</p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                            {faq.category && <span className="badge badge-review">{faq.category}</span>}
+                            {faq.subcategory && <span className="badge" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>{faq.subcategory}</span>}
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace', background: 'rgba(139, 92, 246, 0.1)', padding: '2px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(139, 92, 246, 0.15)' }}>
+                              🧬 {String(faq._id).slice(-8)}
+                            </span>
+                            {faq.createdAt && (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                {new Date(faq.createdAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleStartEdit(faq)}
+                          style={{ flexShrink: 0 }}
+                          id={`edit-btn-${faq._id}`}
+                        >
+                          ✏️ Edit
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <div className="empty-state-icon">🧠</div>
+              <h3>{vectorSearchQuery ? 'No matching FAQs' : 'No Vector FAQs'}</h3>
+              <p>{vectorSearchQuery ? 'Try adjusting your search filter.' : 'No FAQs are currently embedded in the vector database.'}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {deleteTarget && (
         <ConfirmModal
           title="Delete FAQ"
-          message={`Are you sure you want to delete "${deleteTarget.question}"? This action cannot be undone.`}
+          message={`Are you sure you want to delete "${cleanQuestion(deleteTarget.question)}"? This action cannot be undone.`}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
           confirmLabel={deleting ? 'Deleting...' : 'Delete'}

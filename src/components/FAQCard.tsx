@@ -19,6 +19,27 @@ function formatDate(dateStr: string): string {
   });
 }
 
+// Clean up FAQ question text: remove § symbols, strip leading numbering, capitalize first letter
+function cleanQuestion(text: string): string {
+  let cleaned = text
+    .replace(/§/g, '')
+    .replace(/^\s*\d+(\.\d+)*\.?\s*/g, '')
+    .trim();
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+// Clean up FAQ answer text: remove § symbols, capitalize first letter
+function cleanAnswer(text: string): string {
+  let cleaned = text.replace(/§/g, '').trim();
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
 export default function FAQCard({ question, answer, category, createdAt, defaultExpanded = false }: FAQCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -36,13 +57,13 @@ export default function FAQCard({ question, answer, category, createdAt, default
       }}
     >
       <div className="faq-card-header">
-        <h3 className="faq-card-question">{question}</h3>
+        <h3 className="faq-card-question">{cleanQuestion(question)}</h3>
         <div className="faq-card-toggle">▼</div>
       </div>
 
       {expanded && (
         <div className="faq-card-answer">
-          <p>{answer}</p>
+          <p>{cleanAnswer(answer)}</p>
           <div className="faq-card-footer">
             {category && (
               <span className="badge badge-review faq-card-category">
