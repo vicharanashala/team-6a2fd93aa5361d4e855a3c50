@@ -62,10 +62,10 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Email is already registered' }, { status: 409 });
     }
 
-    // Hash password and create user (unverified)
     const passwordHash = await hashPassword(password);
     await db.collection('users').insertOne({
       username,
+      name: username,
       email,
       passwordHash,
       emailVerified: false,
