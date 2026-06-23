@@ -99,6 +99,14 @@ export async function DELETE(request: NextRequest) {
       db.collection('login_history').deleteMany({ userId }),
       db.collection('email_verifications').deleteMany({ email: validRequest.email }),
       db.collection('deletion_requests').deleteMany({ userId }),
+      // Remove upvotes by this user and decrement the count
+      db.collection('queries').updateMany(
+        { upvotedBy: sessionUser.userId },
+        {
+          $pull: { upvotedBy: sessionUser.userId } as any,
+          $inc: { upvotes: -1 }
+        }
+      )
     ]);
 
     // Destroy current session
