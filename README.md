@@ -1,13 +1,18 @@
+# team-6a2fd93aa5361d4e855a3c50
+FAQ Crowdsourcing project — Vanshika Agrawal
+
+
 # IIT Ropar FAQ — Crowdsource Knowledge Platform
 
-A crowd-sourced FAQ platform for IIT Ropar where students can browse FAQs, raise queries, and help peers by solving queries. Built with **Next.js 16**, **TypeScript**, and **MongoDB**.
+A crowd-sourced FAQ platform for IIT Ropar where students can browse FAQs, raise queries, and help peers by solving queries. Built with **Next.js 16**, **TypeScript**, **MongoDB** and **Qdrant**.
 
 ## ✨ Features
 
 - **📚 Browse FAQs** — Search and browse frequently asked questions with real-time search
-- **✋ Raise a Query** — Submit questions and receive a unique ticket ID for tracking
-- **💡 Solve a Query** — Answer peer queries; 3 peer approvals mark a query as resolved
-- **🔒 Admin Panel** — Password-protected dashboard to add and manage FAQs
+- **✋ AI-Powered Query Raising** — Submit questions and get a ticket ID. Uses NLP to auto-generate titles and predict difficulty (Easy/Medium/Hard).
+- **💡 Solve a Query** — Answer peer queries (requires 3 peer approvals) or self-resolve your own query.
+- **🔒 Admin Panel** — Password-protected dashboard. Standard admins are restricted to answering escalated queries, adding new FAQs, and deleting only the FAQs they added.
+- **👑 Superadmin Control** — Highest authority to create/delete admins, directly manage the Qdrant Vector DB, and manipulate FAQ categories.
 - **🎨 Premium Dark UI** — Glassmorphism cards, smooth animations, and responsive design
 
 ## 🛡️ Security Features
@@ -33,7 +38,7 @@ A crowd-sourced FAQ platform for IIT Ropar where students can browse FAQs, raise
 |-------|-----------|
 | Framework | Next.js 16 (App Router) |
 | Language | TypeScript |
-| Database | MongoDB |
+| Database | MongoDB (Primary) + Qdrant (Vector DB for semantic search) |
 | Auth | SHA-256 hashing + Google OAuth 2.0 + HTTP-only session cookies |
 | Email | Nodemailer (SMTP) for OTP verification, lock/unlock, deletion confirmation |
 | Security | DDoS protection + rate limiter + 3-attempt lockout + input sanitization |
@@ -87,6 +92,10 @@ GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id
+
+# Vector Database (Qdrant)
+QDRANT_URL=your-qdrant-url
+QDRANT_API_KEY=your-qdrant-api-key
 ```
 
 ### Running the App
@@ -111,16 +120,17 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | Solve a Query | `/solve-query` | **User login** | Answer active queries or approve proposed solutions |
 | Account Settings | `/account` | **User login** | Profile, login history, account deletion |
 | Admin Login | `/admin` | No | Password-only admin authentication |
-| Admin Dashboard | `/admin/dashboard` | **Admin** | Add new FAQs and manage (delete) existing ones |
+| Admin Dashboard | `/admin/dashboard` | **Admin / Superadmin** | Manage FAQs, answer escalated queries, vector DB control |
 
 ## 🔄 Query Lifecycle
 
 ```
-1. Student logs in (email/password or Google) and raises a query → Ticket ID generated
+1. Student logs in (email/password or Google) and raises a query → Ticket ID generated (with AI title/difficulty)
 2. Query status: 🟡 Active — visible in "My Queries" section
 3. A logged-in peer submits an answer → Status: 🔵 In Review (1/3 approvals)
-4. Two more peers approve → Status: 🟢 Resolved (3/3 approvals)
-5. Student can track status via "My Queries" or by entering the ticket ID
+4. Two more peers approve → Status: 🟢 Resolved (3/3 approvals). *Alternatively, the asker can manually self-resolve it.*
+5. If the query is complex/inappropriate, users can escalate it → Status: 🔴 Escalated (handled by Admins/Superadmin).
+6. Student can track status via "My Queries" or by entering the ticket ID.
 ```
 
 ## 🗂️ Project Structure
@@ -138,42 +148,58 @@ src/
 │   │   ├── page.tsx                   # Admin login
 │   │   └── dashboard/page.tsx         # Admin FAQ management
 │   └── api/
-│       ├── faqs/route.ts              # GET (search/list), POST (add), DELETE (remove)
-│       ├── queries/route.ts           # GET (by ticket/status/userId), POST (create)
-│       ├── queries/solve/route.ts     # POST (answer/approve)
+│       ├── admin/
+│       │   ├── analytics/route.ts     # GET (admin dashboard analytics)
+│       │   ├── categories/route.ts    # POST/DELETE (manipulate FAQ categories)
+│       │   ├── escalated/route.ts     # GET (fetch escalated queries)
+│       │   ├── login/route.ts         # POST (admin authenticate)
+│       │   ├── manage-admins/route.ts # POST/DELETE (superadmin create/remove admins)
+│       │   ├── vector-faqs/route.ts   # POST/DELETE (manage Qdrant DB directly)
+│       │   └── verify/route.ts        # GET (admin session check)
 │       ├── auth/
-│       │   ├── register/route.ts      # POST (register + send verification OTP)
-│       │   ├── login/route.ts         # POST (login with 3-attempt lockout)
-│       │   ├── verify/route.ts        # GET (session check)
-│       │   ├── verify-email/route.ts  # POST (verify OTP code)
-│       │   ├── resend-otp/route.ts    # POST (resend verification OTP)
-│       │   ├── logout/route.ts        # POST (session destroy)
-│       │   ├── history/route.ts       # GET (login timeline)
-│       │   ├── unlock/route.ts        # POST/PUT (send/verify unlock OTP)
 │       │   ├── delete-account/route.ts# POST/DELETE (initiate/confirm deletion)
 │       │   ├── google/route.ts        # GET (redirect to Google OAuth)
-│       │   └── google/callback/route.ts # GET (handle Google callback)
-│       └── admin/
-│           ├── login/route.ts         # POST (admin authenticate)
-│           └── verify/route.ts        # GET (admin session check)
+│       │   ├── google/callback/route.ts # GET (handle Google callback)
+│       │   ├── history/route.ts       # GET (login timeline)
+│       │   ├── login/route.ts         # POST (login with 3-attempt lockout)
+│       │   ├── logout/route.ts        # POST (session destroy)
+│       │   ├── register/route.ts      # POST (register + send verification OTP)
+│       │   ├── resend-otp/route.ts    # POST (resend verification OTP)
+│       │   ├── unlock/route.ts        # POST/PUT (send/verify unlock OTP)
+│       │   ├── verify/route.ts        # GET (session check)
+│       │   └── verify-email/route.ts  # POST (verify OTP code)
+│       ├── faqs/
+│       │   ├── route.ts               # GET (search/list), POST (add), DELETE (remove)
+│       │   └── categories/route.ts    # GET (fetch available categories)
+│       ├── generate-title/route.ts    # POST (AI NLP title generation)
+│       └── queries/
+│           ├── route.ts               # GET (by ticket/status/userId), POST (create)
+│           ├── escalate/route.ts      # POST (escalate query to admin)
+│           ├── mark-resolved/route.ts # POST (self-resolution by asker)
+│           ├── solve/route.ts         # POST (answer/approve)
+│           └── upvote/route.ts        # POST (upvote queries)
 ├── components/
-│   ├── Navbar.tsx                     # Navigation with user pill + logout
-│   ├── FAQCard.tsx                    # Expandable FAQ card
-│   ├── SearchBar.tsx                  # Debounced search input (300ms)
-│   ├── StatusTracker.tsx              # Visual step indicator
-│   ├── TicketDisplay.tsx              # Ticket ID with copy-to-clipboard
-│   ├── ConfirmModal.tsx               # Delete confirmation dialog
 │   ├── AuthForm.tsx                   # Login/Register/OTP/Lockout/Google OAuth UI
 │   ├── AuthGuard.tsx                  # Auth wrapper with Suspense boundary
-│   └── ErrorBoundary.tsx              # Error catch with hard reload button
+│   ├── ConfirmModal.tsx               # Delete confirmation dialog
+│   ├── ErrorBoundary.tsx              # Error catch with hard reload button
+│   ├── FAQCard.tsx                    # Expandable FAQ card
+│   ├── Navbar.tsx                     # Navigation with user pill + logout
+│   ├── SearchBar.tsx                  # Debounced search input (300ms)
+│   ├── StatusTracker.tsx              # Visual step indicator
+│   └── TicketDisplay.tsx              # Ticket ID with copy-to-clipboard
 └── lib/
+    ├── categories.ts                  # Static categories definitions
+    ├── ddos.ts                        # 3-tier progressive DDoS protection
+    ├── difficulty.ts                  # AI heuristic difficulty prediction
+    ├── email.ts                       # Nodemailer SMTP (verification, lock, unlock)
+    ├── embeddings.ts                  # Transformers.js embedding logic
     ├── mongodb.ts                     # Singleton MongoDB connection
-    ├── ticketId.ts                    # Ticket ID generator
-    ├── security.ts                    # SHA-256 hashing, password validation, sanitization
-    ├── session.ts                     # 20-min sliding window session management
+    ├── qdrant.ts                      # Qdrant Vector DB client configuration
     ├── rateLimit.ts                   # Per-IP rate limiter + account lockout tracking
-    ├── email.ts                       # Nodemailer SMTP (verification, lock, unlock, deletion)
-    └── ddos.ts                        # 3-tier progressive DDoS protection
+    ├── security.ts                    # SHA-256 hashing, password validation
+    ├── session.ts                     # 20-min sliding window session management
+    └── ticketId.ts                    # Ticket ID generator
 ```
 
 ## 🔌 API Reference
@@ -259,6 +285,3 @@ src/
 
 MIT
 
-
-# team-6a2fd93aa5361d4e855a3c50
-FAQ Crowdsourcing project — Vanshika Agrawal
